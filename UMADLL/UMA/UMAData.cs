@@ -8,7 +8,17 @@ using System.Collections.Generic;
 namespace UMA
 {
 	public class UMAData : MonoBehaviour {	
-		public SkinnedMeshRenderer myRenderer;
+        public enum AvatarModel
+        {
+            CreateHumanoidAvatar,
+            CreateGenericAvatar,
+            UseExistingAvatar,
+            NoAvatar
+        }
+        public AvatarModel avatarModel = AvatarModel.CreateHumanoidAvatar;
+        public string genericRootMotionBone;
+
+        public SkinnedMeshRenderer myRenderer;
         
         [NonSerialized]
 		public bool firstBake;
@@ -84,6 +94,8 @@ namespace UMA
             animatedBones = other.animatedBones;
             boneHashList = other.boneHashList;
             umaRoot = other.umaRoot;
+            avatarModel = other.avatarModel;
+            genericRootMotionBone = other.genericRootMotionBone;
         }
 
 		

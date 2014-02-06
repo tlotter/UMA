@@ -21,73 +21,130 @@ namespace UMA
         public abstract void addDirtyUMA(UMAData umaToAdd);
         public abstract bool IsIdle();
 
-        private struct AnimationState
+        public struct AnimationState
         {
             public int stateHash;
             public float stateTime;
-        }	
+        }
+        public static AnimationState[] TakeAnimatorSnapShot(Animator animator)
+        {
+            if (animator != null)
+            {
+                AnimationState[] snapshot = new AnimationState[animator.layerCount];
+                for (int i = 0; i < animator.layerCount; i++)
+                {
+                    var state = animator.GetCurrentAnimatorStateInfo(i);
+                    snapshot[i].stateHash = state.nameHash;
+                    snapshot[i].stateTime = Mathf.Max(0, state.normalizedTime - Time.deltaTime / state.length);
+                }
+                return snapshot;
+            }
+            return null;
+        }
+
+        public static void ApplyAnimatorSnapShot(Animator animator, AnimationState[] snapshot)
+        {
+            if (snapshot != null)
+            {
+                for (int i = 0; i < animator.layerCount; i++)
+                {
+                    animator.Play(snapshot[i].stateHash, i, snapshot[i].stateTime);
+                }
+                animator.Update(0);
+            }
+        }
 
         public virtual void UpdateAvatar(UMAData umaData)
         {
             if (umaData)
             {
-                AnimationState[] snapshot = null;
-                if (umaData.animationController)
+                switch (umaData.avatarModel)
                 {
-                    var animator = umaData.animator;
-                    if (animator != null && umaData.animationController == animator.runtimeAnimatorController)
-                    {
-                        snapshot = new AnimationState[animator.layerCount];
-                        for (int i = 0; i < animator.layerCount; i++)
+                    case UMAData.AvatarModel.CreateHumanoidAvatar:
+                        UpdateMecanimAvatar(umaData, true);
+                        break;
+                    case UMAData.AvatarModel.NoAvatar:
+                        var animator = umaData.animator;
+                        if (animator)
                         {
-                            var state = animator.GetCurrentAnimatorStateInfo(i);
-                            snapshot[i].stateHash = state.nameHash;
-                            snapshot[i].stateTime = Mathf.Max(0, state.normalizedTime - Time.deltaTime / state.length);
+                            Object.DestroyImmediate(animator);
                         }
-                    }
-                }
-                if (umaData.animationController)
-                {
-                    var animator = umaData.animator;
-
-                    bool applyRootMotion = false;
-                    bool animatePhysics = false;
-                    AnimatorCullingMode cullingMode = AnimatorCullingMode.AlwaysAnimate;
-
-                    if (animator)
-                    {
-                        applyRootMotion = animator.applyRootMotion;
-                        animatePhysics = animator.animatePhysics;
-                        cullingMode = animator.cullingMode;
-                        Object.DestroyImmediate(animator);
-                    }
-                    var oldParent = umaData.umaRoot.transform.parent;
-                    umaData.umaRoot.transform.parent = null;
-                    animator = CreateAnimator(umaData, umaData.umaRecipe.raceData.TPose, umaData.animationController, applyRootMotion, animatePhysics, cullingMode);
-                    umaData.animator = animator;
-                    umaData.umaRoot.transform.parent = oldParent;
-                    if (snapshot != null)
-                    {
-                        for (int i = 0; i < animator.layerCount; i++)
-                        {
-                            animator.Play(snapshot[i].stateHash, i, snapshot[i].stateTime);
-                        }
-                        animator.Update(0);
-                    }
+                        break;
+                    case UMAData.AvatarModel.UseExistingAvatar:
+                        break;
+                    case UMAData.AvatarModel.CreateGenericAvatar:
+                        UpdateMecanimAvatar(umaData, false);
+                        break;
                 }
             }
         }
 
-        public static Animator CreateAnimator(UMAData umaData, UmaTPose umaTPose, RuntimeAnimatorController controller, bool applyRootMotion, bool animatePhysics, AnimatorCullingMode cullingMode)
+        public virtual void UpdateMecanimAvatar(UMAData umaData, bool humanoid)
         {
+            if (umaData.animationController == null) return;
+
+            var animator = umaData.animator;
+
+            AnimationState[] snapshot = null;
+            if (animator != null && umaData.animationController == animator.runtimeAnimatorController)
+            {
+                snapshot = TakeAnimatorSnapShot(animator);
+            }
+
+            bool applyRootMotion = false;
+            bool animatePhysics = false;
+            AnimatorCullingMode cullingMode = AnimatorCullingMode.AlwaysAnimate;
+
+            if (animator != null)
+            {
+                applyRootMotion = animator.applyRootMotion;
+                animatePhysics = animator.animatePhysics;
+                cullingMode = animator.cullingMode;
+                Object.DestroyImmediate(animator);
+            }
+
+            var oldParent = umaData.umaRoot.transform.parent;
+            umaData.umaRoot.transform.parent = null;
+            var umaTPose = umaData.umaRecipe.raceData.TPose;
             umaTPose.DeSerialize();
+            Avatar avatar;
+            if (humanoid)
+            {
+                avatar = CreateHumanoidAvatar(umaData, umaTPose);
+            }
+            else
+            {
+                avatar = CreateGenericAvatar(umaData, umaTPose);
+            }
+            animator = CreateAnimator(umaData, avatar, umaData.animationController, applyRootMotion, animatePhysics, cullingMode);
+            umaData.animator = animator;
+            umaData.umaRoot.transform.parent = oldParent;
+            ApplyAnimatorSnapShot(animator, snapshot);
+        }
+
+        public static Animator CreateAnimator(UMAData umaData, Avatar avatar, RuntimeAnimatorController controller, bool applyRootMotion, bool animatePhysics, AnimatorCullingMode cullingMode)
+        {
             var animator = umaData.umaRoot.AddComponent<Animator>();
-            animator.avatar = CreateAvatar(umaData, umaTPose);
+            animator.avatar = avatar;
             animator.runtimeAnimatorController = controller;
             animator.applyRootMotion = applyRootMotion;
             animator.animatePhysics = animatePhysics;
             animator.cullingMode = cullingMode;
             return animator;
+        }
+
+        public static Avatar CreateHumanoidAvatar(UMAData umaData, UmaTPose umaTPose)
+        {
+            HumanDescription description = CreateHumanDescription(umaData, umaTPose);
+            //DebugLogHumanAvatar(umaData.umaRoot, description);
+            Avatar res = AvatarBuilder.BuildHumanAvatar(umaData.umaRoot, description);
+            return res;
+        }
+
+        public static Avatar CreateGenericAvatar(UMAData umaData, UmaTPose umaTPose)
+        {
+            Avatar res = AvatarBuilder.BuildGenericAvatar(umaData.umaRoot, umaData.genericRootMotionBone);
+            return res;
         }
 
         public static void DebugLogHumanAvatar(GameObject root, HumanDescription description)
@@ -113,16 +170,6 @@ namespace UMA
                 }
             }
             Debug.Log("++++");
-        }
-
-
-        public static Avatar CreateAvatar(UMAData umaData, UmaTPose umaTPose)
-        {
-            umaTPose.DeSerialize();
-            HumanDescription description = CreateHumanDescription(umaData, umaTPose);
-            //DebugLogHumanAvatar(umaData.umaRoot, description);
-            Avatar res = AvatarBuilder.BuildHumanAvatar(umaData.umaRoot, description);
-            return res;
         }
 
         public static HumanDescription CreateHumanDescription(UMAData umaData, UmaTPose umaTPose)
