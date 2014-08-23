@@ -52,7 +52,7 @@ public class UMAReplaceDLL
             throw new System.Exception("File exists multiple times " + assetName);
         }
 
-        string assetPath = Path.Combine("Assets", files[0].Substring(Application.dataPath.Length));
+		string assetPath = "Assets" + files[0].Substring(Application.dataPath.Length);
         return AssetDatabase.AssetPathToGUID(assetPath);
     }
 
